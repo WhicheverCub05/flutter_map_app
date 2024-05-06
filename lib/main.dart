@@ -1,12 +1,22 @@
-import 'package:flutter/material.dart';
-import 'package:flutter_3d_controller/flutter_3d_controller.dart';
-import 'package:model_viewer_plus/model_viewer_plus.dart';
 import 'dart:io';
+import 'dart:async';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+import 'package:model_viewer_plus/model_viewer_plus.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:flutter_downloader/flutter_downloader.dart';
 
-void main() {
+void main() async {
+
+  WidgetsFlutterBinding.ensureInitialized();
+  
+  await FlutterDownloader.initialize( // should be await
+      debug: kDebugMode, ignoreSsl: true );
+
   runApp(const MyApp());
 }
+
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
@@ -29,109 +39,131 @@ class MyApp extends StatelessWidget {
           ),
         ),
       ),
-      home: const MyHomePage(title: '3D map viewer'),
+      home: const Make3DViewer(title: '3D Model viewer'),
     );
   }
 }
 
-class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key, required this.title});
+class Make3DViewer extends StatefulWidget {
+  const Make3DViewer({super.key, required this.title});
+
   final String title;
-
-  @override
-  State<MyHomePage> createState() => _MyHomePageState();
-}
-
-
-class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
-
-  void _incrementCounter() {
-    setState(() {
-      _counter++;
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    
-    return MaterialApp(
-      home: Scaffold(
-        appBar: AppBar(title: const Text('Model Viewer')),
-        body: 
-          // const Display3DModel(fileName: 'Astronaut.glb',),
-          const Flutter3DViewer(src: 'assets/models/demo.glb')
-        ),
-        // body: const ModelViewer(
-        //   backgroundColor: Color.fromARGB(255, 255, 238, 160),
-        //   src: 'https://science.nasa.gov/wp-content/uploads/2023/09/Moon_1_3474.glb?emrc=66300e115c07b',
-        //   alt: '3D Map Model',
-        //   ar: true,
-        //   autoRotate: true,
-        //   iosSrc: 'https://homologmodels.blob.core.windows.net/models/5d8dc969-b06e-44a0-814f-e0a669fa5292',
-        //   disableZoom: false,
-        // ),
-      );
-  }
-}
-
-
-class Display3DModel extends StatefulWidget {
-
-  const Display3DModel({super.key, required this.fileName, this.child});
-
-  final String fileName;
-  final Widget? child;
   // https://api.flutter.dev/flutter/widgets/StatefulWidget-class.html
   @override
-  State<Display3DModel> createState() => _Display3DModelState();
+  State<Make3DViewer> createState() => _Make3DViewerState();
 }
 
 
-class _Display3DModelState extends State<Display3DModel> {
-  String fileName = '';
-  String modelPath = '';
+class _Make3DViewerState extends State<Make3DViewer> {
+  String localAssetPath = '';
+  String localAssetFileName = '';
+  String defaultAssetPath = 'assets/models/'; 
+  String defaultlocalAssetFileName = 'NASA_moon.glb';
+  
+  String assetAPIUrl = 'https://hypamaps-api.azurewebsites.net/viewer/model/';
+  String assetAPIName = '';
+  String assetDownloadUrl = '';
+  String assetCoordinates = '';
 
-  void changeModel() {
+  String currentModelSrc = '';
+
+  bool usingLocalModel = true;
+  bool autoRotate_ = true;
+
+  // had this.localAssetFileName, String? newAssetPath
+  _Make3DViewerState() {
+    debugPrint("_Make3DViewerState is called");
+    debugPrint("using -> localAssetFileName: $localAssetFileName, assetPath: $localAssetPath");
+    if (!kIsWeb) {requestDownloadPermissions();}
+  }
+  
+
+  Future<void> requestDownloadPermissions() async {
+    await Permission.storage.request();
+  }
+
+
+  Future<String> getDownloadFilePath(String fileName) async {
+    Directory appDocDir = await getApplicationCacheDirectory();
+    String appDocPath = appDocDir.path;
+    return '$appDocPath$fileName';
+  }
+
+
+  void setModelSrc({String? newSrc}) {
+    // when changing state, can't add arguments so need to pull fileName from input or set variable
     setState(() {
-      String assetPath = 'assets/models/';
-      modelPath = '$assetPath$fileName';
-      File? sourceFile = File(modelPath);
-      
-      Future checkDirectory() async {
-          final Directory assetDirectory = await getTemporaryDirectory();
-          final List<FileSystemEntity> files = assetDirectory.listSync();
+      if (newSrc != null) { currentModelSrc = newSrc;}
 
-          for (final FileSystemEntity file in files) {
-            final FileStat fileStat = await file.stat();
-            debugPrint('Path: ${file.path}');
-            debugPrint('type: ${fileStat.type}');
-            debugPrint('size: ${fileStat.size}');
-            }
-          }
-      
-      if (sourceFile.existsSync()) {
-        debugPrint("file $modelPath exists");
-      } else {
-        debugPrint("can't find $modelPath");
-        modelPath = '${assetPath}Box.glb';
-        debugPrint("instead using $modelPath \n");
-        checkDirectory();
+      if (currentModelSrc == '') {
+        currentModelSrc = '$defaultAssetPath$defaultlocalAssetFileName';
+        debugPrint("default asset path: $defaultAssetPath");
       }
+
+      if (currentModelSrc.contains('http')) {
+        usingLocalModel = false;
+      } else {
+        usingLocalModel = true;
+      }
+
+      autoRotate_ = false;
     });
   }
+
+
+  Future<void> downloadMapModelFromAPI({String? downloadUrl}) async {
+    if (downloadUrl != null) { assetDownloadUrl = downloadUrl; }
+    
+    // assetDownloadUrl = "https://homologmodels.blob.core.windows.net/models/5d8dc969-b06e-44a0-814f-e0a669fa5292";
+    assetDownloadUrl = "https://science.nasa.gov/wp-content/uploads/2023/09/Moon_1_3474.glb?emrc=66381d00ac290";
+    String saveFileName = 'test.glb';
+
+    
+    // 
+
+    debugPrint('saving $saveFileName in $defaultAssetPath from $assetDownloadUrl');
+    await FlutterDownloader.enqueue(
+      url: assetDownloadUrl, 
+      savedDir: defaultAssetPath,
+      fileName: saveFileName,
+      showNotification: false,
+      openFileFromNotification: false,
+      headers: {}
+      );
+    
+    setModelSrc(newSrc: '$defaultAssetPath$saveFileName');
+
+    //'https://hypamaps-api.azurewebsites.net/viewer/model/'
+    //5d8dc969-b06e-44a0-814f-e0a669fa5292
+  }
+
 
   @override 
   Widget build(BuildContext context) {
-    Flutter3DController controller = Flutter3DController();
-    controller.setCameraTarget(0, 0, 0);
-    controller.setCameraOrbit(0, 0, 0);
-    return (
-      Flutter3DViewer(
-        progressBarColor: Colors.blue,
-        src:modelPath,
-        controller: controller,
-      )
+
+    setModelSrc();
+
+    debugPrint("returning the Flutter3DViewer with model $currentModelSrc");
+    return Scaffold (
+      
+      appBar: AppBar (title: const Text('3D viewer demo'),),
+      body: SizedBox (
+        height: MediaQuery.of(context).size.height,
+        //decoration: BoxDecoration(color: Colors.blue[500]),
+        child: ModelViewer(
+          src:currentModelSrc,
+          key: ValueKey(currentModelSrc),
+          backgroundColor: const Color.fromARGB(255, 20, 20, 16),
+          alt: '3D Map Model',
+          autoRotate: autoRotate_,
+          autoRotateDelay: 2,
+        ),
+      ),
+      floatingActionButton: FloatingActionButton (
+        onPressed: downloadMapModelFromAPI,
+        tooltip: 'change 3D model',
+        child: const Icon(Icons.loop),
+        ),
     );     
   }
 }
